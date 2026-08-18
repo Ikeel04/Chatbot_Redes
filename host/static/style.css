@@ -1,0 +1,63 @@
+/* Paleta simple pensada en HCI: contraste adecuado, colores neutros con
+   un acento (verde para "finanzas"). Ajustar segun avance el proyecto. */
+
+:root {
+    --color-fondo: #f7f8fa;
+    --color-primario: #1f7a4d;
+    --color-texto: #222;
+    --color-burbuja-usuario: #1f7a4d;
+    --color-burbuja-bot: #ffffff;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: var(--color-fondo);
+    color: var(--color-texto);
+}
+
+.app {
+    max-width: 720px;
+    margin: 0 auto;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+header {
+    padding: 1rem;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+#chat-window {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+}
+
+#chat-form {
+    display: flex;
+    gap: 0.5rem;
+    padding: 1rem;
+    border-top: 1px solid #e0e0e0;
+}
+
+#chat-input {
+    flex: 1;
+    padding: 0.6rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+}
+
+button {
+    padding: 0.6rem 1.2rem;
+    background: var(--color-primario);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
