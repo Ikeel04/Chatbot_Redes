@@ -6,6 +6,8 @@ compatible con el formato de tool-use de Anthropic).
 Cada tool debe tener: name, description, inputSchema (JSON Schema).
 """
 
+import db
+
 TOOLS = [
     {
         "name": "registrar_gasto",
@@ -82,8 +84,90 @@ TOOLS = [
 ]
 
 
-# TODO (siguiente paso): funcion dispatch que reciba (name, arguments)
-# y llame a la funcion correspondiente en db.py, retornando el resultado
-# en el formato de "tool result" de MCP.
+def _resumen_texto(mes: str) -> dict:
+    gastos = db.gastos_del_mes(mes)
+    total = sum(g["monto"] for g in gastos)
+
+    por_categoria: dict[str, float] = {}
+    for g in gastos:
+        por_categoria[g["categoria"]] = por_categoria.get(g["categoria"], 0) + g["monto"]
+
+    categoria_top = max(por_categoria, key=por_categoria.get) if por_categoria else None
+
+    presupuestos = db.obtener_todos_presupuestos()
+    comparacion = []
+    for p in presupuestos:
+        gastado = por_categoria.get(p["categoria"], 0)
+        comparacion.append({
+            "categoria": p["categoria"],
+            "gastado": gastado,
+            "limite_mensual": p["limite_mensual"],
+            "excedido": gastado > p["limite_mensual"],
+        })
+
+    return {
+        "mes": mes,
+        "total_gastado": total,
+        "categoria_con_mas_gasto": categoria_top,
+        "gasto_por_categoria": por_categoria,
+        "comparacion_presupuestos": comparacion,
+    }
+
+
 def ejecutar_tool(name: str, arguments: dict) -> dict:
-    raise NotImplementedError(f"Tool no implementada aun: {name}")
+    """
+    Despacha la ejecucion de una tool hacia la logica correspondiente
+    en db.py. Retorna un dict con el resultado (sera envuelto en el
+    formato de "tool result" de MCP por quien llame a esta funcion).
+    """
+
+    if name == "registrar_gasto":
+        return db.registrar_gasto(
+            monto=arguments["monto"],
+            categoria=arguments["categoria"],
+            fecha=arguments["fecha"],
+            descripcion=arguments.get("descripcion", ""),
+        )
+
+    if name == "consultar_gastos":
+        gastos = db.obtener_gastos(
+            categoria=arguments.get("categoria"),
+            fecha_inicio=arguments.get("fecha_inicio"),
+            fecha_fin=arguments.get("fecha_fin"),
+        )
+        return {"gastos": gastos, "cantidad": len(gastos)}
+
+    if name == "definir_presupuesto":
+        return db.definir_presupuesto(
+            categoria=arguments["categoria"],
+            limite_mensual=arguments["limite_mensual"],
+        )
+
+    if name == "consultar_presupuesto":
+        categoria = arguments["categoria"]
+        presupuesto = db.obtener_presupuesto(categoria)
+        if presupuesto is None:
+            return {"categoria": categoria, "error": "No hay presupuesto definido para esta categoria"}
+
+        # Se usa el mes actual del sistema si no se especifica
+        from datetime import date
+        mes_actual = date.today().strftime("%Y-%m")
+        gastado = db.total_gastado_categoria_mes(categoria, mes_actual)
+
+        return {
+            "categoria": categoria,
+            "limite_mensual": presupuesto["limite_mensual"],
+            "gastado": gastado,
+            "disponible": presupuesto["limite_mensual"] - gastado,
+            "excedido": gastado > presupuesto["limite_mensual"],
+        }
+
+    if name == "generar_resumen":
+        return _resumen_texto(arguments["mes"])
+
+    if name == "alerta_sobregiro":
+        resumen = _resumen_texto(arguments["mes"])
+        excedidas = [c for c in resumen["comparacion_presupuestos"] if c["excedido"]]
+        return {"mes": arguments["mes"], "categorias_excedidas": excedidas, "hay_alertas": len(excedidas) > 0}
+
+    raise ValueError(f"Tool desconocida: {name}")

@@ -28,25 +28,56 @@ SERVER_INFO = {
     "version": "0.1.0",
 }
 
+PROTOCOL_VERSION = "2025-06-18"
+
+
+def _success(msg_id, result: dict) -> dict:
+    return {"jsonrpc": "2.0", "id": msg_id, "result": result}
+
+
+def _error(msg_id, code: int, message: str) -> dict:
+    return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
+
 
 def handle_message(message: dict) -> dict | None:
     method = message.get("method")
     msg_id = message.get("id")
+    params = message.get("params", {}) or {}
+
+    # Las notificaciones (sin "id") no requieren respuesta, ej. "notifications/initialized"
+    if msg_id is None:
+        return None
 
     if method == "initialize":
-        # TODO: retornar capabilities y serverInfo segun especificacion MCP
-        pass
-    elif method == "tools/list":
-        # TODO: retornar {"tools": TOOLS}
-        pass
-    elif method == "tools/call":
-        # TODO: extraer params.name y params.arguments, llamar ejecutar_tool()
-        pass
-    else:
-        # TODO: responder con error JSON-RPC "Method not found" (-32601)
-        pass
+        return _success(msg_id, {
+            "protocolVersion": PROTOCOL_VERSION,
+            "capabilities": {
+                "tools": {}
+            },
+            "serverInfo": SERVER_INFO,
+        })
 
-    return None  # TODO: retornar el mensaje de respuesta JSON-RPC
+    if method == "tools/list":
+        return _success(msg_id, {"tools": TOOLS})
+
+    if method == "tools/call":
+        nombre_tool = params.get("name")
+        argumentos = params.get("arguments", {}) or {}
+        try:
+            resultado = ejecutar_tool(nombre_tool, argumentos)
+            return _success(msg_id, {
+                "content": [
+                    {"type": "text", "text": json.dumps(resultado, ensure_ascii=False)}
+                ],
+                "isError": False,
+            })
+        except Exception as exc:
+            return _success(msg_id, {
+                "content": [{"type": "text", "text": f"Error al ejecutar la tool: {exc}"}],
+                "isError": True,
+            })
+
+    return _error(msg_id, -32601, f"Method not found: {method}")
 
 
 def main():
@@ -58,7 +89,9 @@ def main():
         try:
             message = json.loads(line)
         except json.JSONDecodeError:
-            continue  # TODO: responder error de parseo (-32700)
+            sys.stdout.write(json.dumps(_error(None, -32700, "Parse error")) + "\n")
+            sys.stdout.flush()
+            continue
 
         response = handle_message(message)
         if response is not None:
