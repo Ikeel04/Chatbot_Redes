@@ -5,8 +5,23 @@ Adrián González
 
 ## 1. Especificación de los servidores MCP desarrollados
 
-*(TODO: especificación, parámetros y endpoints — puede referenciar
-`mcp_servers/finassist/SPEC.md`)*
+Ver `mcp_servers/finassist/SPEC.md` para la especificación completa
+del servidor propio de FinAssist (tools, parámetros, ejemplos de
+request/response, y detalle del despliegue en Google Cloud Run).
+
+Resumen de la arquitectura de transporte: el servidor FinAssist se
+implementó una sola vez a nivel de lógica de negocio (`tools.py`,
+`db.py`) y protocolo (`dispatch.py`), y se expone por dos transportes
+distintos según el entorno:
+
+- **Local** (`server.py`): JSON-RPC 2.0 sobre stdio (subprocess).
+- **Remoto** (`server_remote.py`): JSON-RPC 2.0 sobre HTTP (`POST /mcp`),
+  desplegado en Google Cloud Run mediante el `Dockerfile` incluido.
+
+El host detecta automáticamente cuál usar según la variable de entorno
+`FINASSIST_REMOTE_URL`: si está definida, usa el servidor remoto; si
+no, el local — sin ningún otro cambio en la lógica del chatbot, ya que
+`mcp_client.py` implementa ambos transportes bajo la misma interfaz.
 
 ## 1.1 Integración de servidores MCP oficiales (Filesystem y Git)
 

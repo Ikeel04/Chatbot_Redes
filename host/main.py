@@ -96,11 +96,23 @@ class ChatRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup():
-    mcp_manager.registrar_servidor(
-        "finassist",
-        transport="stdio",
-        command=["python3", "mcp_servers/finassist/server.py"],
-    )
+    finassist_remote_url = os.getenv("FINASSIST_REMOTE_URL")
+    if finassist_remote_url:
+        # El chatbot usa el servidor remoto exactamente igual que el
+        # local (mismo MCPClient generico, solo cambia el transporte):
+        # basta con definir FINASSIST_REMOTE_URL en .env para apuntar
+        # al servidor desplegado en la nube (requisito 6).
+        mcp_manager.registrar_servidor(
+            "finassist",
+            transport="http",
+            url=finassist_remote_url,
+        )
+    else:
+        mcp_manager.registrar_servidor(
+            "finassist",
+            transport="stdio",
+            command=["python3", "mcp_servers/finassist/server.py"],
+        )
 
     _preparar_workspace_git()
 

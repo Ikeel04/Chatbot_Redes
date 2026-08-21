@@ -9,22 +9,22 @@ FinAssist is a web chatbot that acts as an MCP **host**, coordinating
 multiple MCP **servers** (the official Filesystem and Git servers, plus
 a custom FinAssist server for personal finance management) to answer
 general questions and perform actions on behalf of the user, powered by
-the Claude API.
+the Gemini API.
 
 The MCP protocol (JSON-RPC 2.0 based) is implemented manually in this
 project — no MCP SDK (e.g. FastMCP) is used.
 
 ## Features implemented
 
-- [ ] Connection to the Claude API (general Q&A)
-- [ ] Session context handling
-- [ ] Logging of all MCP server interactions
-- [ ] Integration with the official Filesystem MCP server
-- [ ] Integration with the official Git MCP server
-- [ ] Custom local MCP server: FinAssist (personal finance)
-- [ ] Custom remote MCP server: FinAssist deployed to the cloud
+- [x] Connection to the Claude API (general Q&A)
+- [x] Session context handling
+- [x] Logging of all MCP server interactions
+- [x] Integration with the official Filesystem MCP server
+- [x] Integration with the official Git MCP server
+- [x] Custom local MCP server: FinAssist (personal finance)
+- [x] Custom remote MCP server: FinAssist deployed to the cloud
 - [ ] Wireshark analysis of client-server communication
-- [ ] Web UI
+- [x] Web UI
 
 *(Checklist to be updated as functionalities are completed)*
 
@@ -40,7 +40,9 @@ tests/           # Tests
 ## Requirements
 
 - Python 3.11+
-- An Anthropic API key (see https://console.anthropic.com)
+- A Gemini API key (see https://aistudio.google.com/apikey)
+- Node.js (needed for `npx`, used to run the official Filesystem MCP server)
+- Git installed and available in your PATH
 
 ## Installation
 
@@ -51,20 +53,32 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
+# Edit .env and add your GEMINI_API_KEY
 ```
 
 ## Usage
 
 ```bash
-uvicorn host.main:app --reload --port 8000
+uvicorn host.main:app --port 8000
 ```
+
+Note: do not use `--reload` — on Windows it forces an event loop that
+does not support the subprocesses used to launch the local MCP
+servers (see `host/main.py` for details).
 
 Then open `http://localhost:8000` in your browser.
 
-*(TODO: add instructions for running the custom FinAssist MCP server
-standalone, and for connecting to its remote deployment, once
-implemented)*
+To run the custom FinAssist MCP server on its own (outside the
+chatbot), for debugging:
+
+```bash
+cd mcp_servers/finassist
+python3 test_server_manual.py
+```
+
+To use the remote (cloud-deployed) FinAssist server instead of the
+local one, set `FINASSIST_REMOTE_URL` in `.env` (see
+`mcp_servers/finassist/SPEC.md` for deployment instructions).
 
 ## Author
 
