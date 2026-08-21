@@ -7,6 +7,7 @@ servidores MCP.
 import os
 import sys
 import asyncio
+import subprocess
 from pathlib import Path
 
 # En Windows, el event loop por defecto (SelectorEventLoop) no soporta
@@ -50,7 +51,42 @@ app.mount("/static", StaticFiles(directory="host/static"), name="static")
 llm = LLMClient()
 mcp_manager = MCPManager()
 
-MAX_ITERACIONES_TOOLS = 5  # limite de vueltas del ciclo tool_call -> resultado -> tool_call
+MAX_ITERACIONES_TOOLS = 15  # limite de vueltas del ciclo tool_call -> resultado -> tool_call
+
+# Carpeta compartida por los servidores oficiales de Filesystem y Git
+# (requisito 4). Ambos operan sobre este mismo directorio: el
+# Filesystem server puede leer/escribir archivos aqui, y el Git server
+# opera sobre el repositorio ubicado aqui.
+WORKSPACE_DIR = Path(__file__).resolve().parent.parent / "mcp_workspace"
+
+
+def _comando_npx(*args: str) -> list[str]:
+    """
+    En Windows, npx es un script .cmd y asyncio.create_subprocess_exec
+    no lo ejecuta directamente (no pasa por una shell). Se envuelve
+    con 'cmd /c' en Windows, tal como recomienda la documentacion
+    oficial de MCP para servidores basados en npx.
+    """
+    if sys.platform == "win32":
+        return ["cmd", "/c", "npx", *args]
+    return ["npx", *args]
+
+
+def _preparar_workspace_git():
+    """
+    El servidor Git oficial (mcp-server-git) NO expone una tool
+    'git_init': opera sobre un repositorio que ya debe existir,
+    recibido via '--repository' al arrancar (limitacion documentada
+    del servidor de referencia). Por eso el "crear el repositorio" del
+    escenario del enunciado lo hace el host aqui, una sola vez; el
+    resto del flujo (crear README, agregarlo, hacer commit) si lo
+    hace el chatbot en tiempo real via las tools MCP.
+    """
+    WORKSPACE_DIR.mkdir(exist_ok=True)
+    if not (WORKSPACE_DIR / ".git").exists():
+        subprocess.run(
+            ["git", "init"], cwd=WORKSPACE_DIR, check=True, capture_output=True
+        )
 
 
 class ChatRequest(BaseModel):
@@ -65,8 +101,21 @@ async def startup():
         transport="stdio",
         command=["python3", "mcp_servers/finassist/server.py"],
     )
-    # TODO: registrar tambien filesystem_official y git_official aqui
-    # cuando se integren (requisito 4), con su respectivo "command".
+
+    _preparar_workspace_git()
+
+    mcp_manager.registrar_servidor(
+        "filesystem_official",
+        transport="stdio",
+        command=_comando_npx(
+            "-y", "@modelcontextprotocol/server-filesystem", str(WORKSPACE_DIR)
+        ),
+    )
+    mcp_manager.registrar_servidor(
+        "git_official",
+        transport="stdio",
+        command=[sys.executable, "-m", "mcp_server_git", "--repository", str(WORKSPACE_DIR)],
+    )
 
     await mcp_manager.conectar_todos()
 

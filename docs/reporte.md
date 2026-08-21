@@ -8,6 +8,28 @@ Adrián González
 *(TODO: especificación, parámetros y endpoints — puede referenciar
 `mcp_servers/finassist/SPEC.md`)*
 
+## 1.1 Integración de servidores MCP oficiales (Filesystem y Git)
+
+Se integraron los servidores oficiales de Anthropic:
+
+- **Filesystem** (`@modelcontextprotocol/server-filesystem`, vía `npx`):
+  expone lectura/escritura de archivos sobre un directorio permitido
+  (`mcp_workspace/`).
+- **Git** (`mcp-server-git`, paquete de Python vía `pip`): expone
+  operaciones de Git (`git_status`, `git_add`, `git_commit`, `git_log`,
+  etc.) sobre un repositorio fijo, pasado con `--repository` al
+  arrancar el servidor.
+
+**Limitación encontrada:** el servidor Git oficial **no expone una
+tool `git_init`** — solo opera sobre un repositorio que ya debe
+existir. Por eso, el "crear el repositorio" del escenario del
+enunciado lo realiza el *host* al arrancar (`git init` una sola vez,
+si el directorio `mcp_workspace/` no es ya un repositorio), y el resto
+del flujo sí lo ejecuta el chatbot en tiempo real vía MCP: crear el
+archivo `README.md` (tool `write_file` del servidor Filesystem),
+agregarlo al staging (`git_add`) y hacer commit (`git_commit`), tal
+como pide el enunciado.
+
 ## 2. Análisis con Wireshark
 
 *(TODO: capturas de la comunicación entre el host y el servidor remoto;

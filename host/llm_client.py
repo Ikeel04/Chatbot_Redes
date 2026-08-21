@@ -19,6 +19,31 @@ from google.genai import types
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
+# Campos de JSON Schema que los servidores MCP pueden incluir (son
+# validos en JSON Schema estandar) pero que el validador de Gemini
+# (types.Schema, via Pydantic) rechaza por no reconocerlos. Se
+# eliminan recursivamente antes de construir el FunctionDeclaration.
+_CAMPOS_NO_SOPORTADOS_POR_GEMINI = {"$schema", "$id", "additionalProperties", "exclusiveMinimum", "exclusiveMaximum"}
+
+
+def _sanear_json_schema(schema):
+    """
+    Elimina recursivamente campos de JSON Schema que Gemini no
+    soporta, tanto en el nivel superior como dentro de 'properties',
+    'items', 'anyOf', etc. Necesario porque los servidores MCP
+    oficiales (ej. Filesystem) generan schemas mas completos de lo
+    que el subconjunto de Gemini acepta.
+    """
+    if isinstance(schema, dict):
+        return {
+            k: _sanear_json_schema(v)
+            for k, v in schema.items()
+            if k not in _CAMPOS_NO_SOPORTADOS_POR_GEMINI
+        }
+    if isinstance(schema, list):
+        return [_sanear_json_schema(item) for item in schema]
+    return schema
+
 
 class LLMClient:
     def __init__(self):
@@ -40,7 +65,9 @@ class LLMClient:
             types.FunctionDeclaration(
                 name=tool["name"],
                 description=tool.get("description", ""),
-                parameters=tool.get("parameters", {"type": "object", "properties": {}}),
+                parameters=_sanear_json_schema(
+                    tool.get("parameters", {"type": "object", "properties": {}})
+                ),
             )
             for tool in mcp_tools
         ]
