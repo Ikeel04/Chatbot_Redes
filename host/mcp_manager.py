@@ -3,13 +3,8 @@ MCPManager: el "anfitrion" coordina multiples clientes MCP (filesystem,
 git, finassist local, finassist remoto, etc.) y expone una interfaz
 unificada de herramientas al LLM.
 
-TODO (siguiente paso):
-    - registrar_servidor(nombre, config): agrega un MCPClient a self.clientes
-    - conectar_todos(): llama connect() + initialize() + list_tools() en cada cliente
-    - obtener_herramientas_disponibles(): junta las tools de todos los servidores
-      en el formato que espera la API de Anthropic (tool schema)
-    - ejecutar_herramienta(nombre_tool, argumentos): identifica a que servidor
-      pertenece la tool y delega la llamada a su MCPClient.call_tool(...)
+registrar_servidor() acepta tanto servidores locales (transport="stdio",
+con su "command") como remotos (transport="http", con su "url").
 """
 
 from host.mcp_client import MCPClient
@@ -22,16 +17,57 @@ class MCPManager:
         # Mapea nombre_de_tool -> nombre_del_servidor que la implementa
         self.tool_to_server: dict[str, str] = {}
 
-    def registrar_servidor(self, nombre: str, transport: str = "stdio"):
-        self.clientes[nombre] = MCPClient(server_name=nombre, transport=transport)
+    def registrar_servidor(self, nombre: str, transport: str = "stdio",
+                            command: list[str] | None = None, url: str | None = None):
+        self.clientes[nombre] = MCPClient(
+            server_name=nombre, transport=transport, command=command, url=url
+        )
 
     async def conectar_todos(self):
-        # TODO: conectar e inicializar cada cliente, y poblar tool_to_server
-        raise NotImplementedError
+        """
+        Conecta, inicializa (handshake) y lista las tools de cada
+        servidor registrado. Puebla tool_to_server para poder despachar
+        las llamadas de tools/call al servidor correcto.
+        """
+        for nombre, cliente in self.clientes.items():
+            await cliente.connect()
+            await cliente.initialize()
+            tools = await cliente.list_tools()
+
+            for tool in tools:
+                tool_name = tool["name"]
+                if tool_name in self.tool_to_server:
+                    otro_servidor = self.tool_to_server[tool_name]
+                    raise ValueError(
+                        f"Conflicto de nombres: la tool '{tool_name}' esta "
+                        f"definida tanto en '{otro_servidor}' como en '{nombre}'"
+                    )
+                self.tool_to_server[tool_name] = nombre
+
+    async def cerrar_todos(self):
+        for cliente in self.clientes.values():
+            await cliente.close()
 
     def obtener_herramientas_disponibles(self) -> list[dict]:
-        # TODO: retornar lista de tools en formato Anthropic tool-use
-        raise NotImplementedError
+        """
+        Junta las tools de todos los servidores conectados y las
+        convierte al formato de "function declarations" que espera la
+        API de Gemini:
+
+            {"name": ..., "description": ..., "parameters": <JSON Schema>}
+
+        (MCP ya usa "inputSchema" en formato JSON Schema, asi que solo
+        se renombra la llave a "parameters".)
+        """
+        herramientas = []
+        for cliente in self.clientes.values():
+            for tool in cliente.tools:
+                herramientas.append({
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("inputSchema", {"type": "object", "properties": {}}),
+                })
+        return herramientas
 
     async def ejecutar_herramienta(self, nombre_tool: str, argumentos: dict) -> dict:
         servidor = self.tool_to_server.get(nombre_tool)
