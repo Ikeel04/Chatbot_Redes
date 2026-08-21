@@ -12,11 +12,12 @@ obtuvo hablando JSON-RPC manualmente con los servidores MCP.
 """
 
 import os
+import datetime
 
 from google import genai
 from google.genai import types
 
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 
 class LLMClient:
@@ -51,9 +52,21 @@ class LLMClient:
         tools MCP disponibles (si las hay). Retorna la respuesta cruda
         del SDK; quien llame decide si hay function_call(s) pendientes
         o si ya es una respuesta final de texto (ver funciones abajo).
+
+        Se incluye la fecha actual como system_instruction: el modelo
+        no tiene reloj propio, y sin este contexto "inventa" fechas al
+        resolver expresiones como "hoy" o "este mes" (necesario para
+        las tools de FinAssist, que reciben fecha en formato YYYY-MM-DD).
         """
+        hoy = datetime.date.today().strftime("%Y-%m-%d")
         config = types.GenerateContentConfig(
             tools=self._construir_tools(mcp_tools),
+            system_instruction=(
+                f"La fecha de hoy es {hoy} (formato YYYY-MM-DD). "
+                f"Usa esta fecha cuando el usuario diga 'hoy', 'este mes', "
+                f"'ayer', etc., y pasa las fechas a las tools en formato "
+                f"YYYY-MM-DD."
+            ),
         )
         response = self.client.models.generate_content(
             model=MODEL,

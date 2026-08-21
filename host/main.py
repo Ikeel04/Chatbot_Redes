@@ -1,9 +1,22 @@
 """
 Punto de entrada del anfitrion (host). Sirve la web UI y expone el
-endpoint de chat que conecta al usuario con el LLM + servidores MCP.
+endpoint de chat que conecta al usuario con el LLM (Gemini) y los
+servidores MCP.
 """
 
 import os
+import sys
+import asyncio
+from pathlib import Path
+
+# En Windows, el event loop por defecto (SelectorEventLoop) no soporta
+# subprocesos, y mcp_client.py necesita asyncio.create_subprocess_exec
+# para lanzar los servidores MCP locales por stdio. Se fuerza el
+# ProactorEventLoop, que si los soporta. Debe hacerse antes de que
+# uvicorn cree el loop.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -17,11 +30,27 @@ from host.logger import mcp_logger
 
 load_dotenv()
 
+# load_dotenv() sin argumentos a veces no encuentra el .env dependiendo
+# de como/desde donde se invoque uvicorn (varia entre entornos). Se
+# refuerza cargando explicitamente el .env ubicado en la raiz del
+# proyecto (un nivel arriba de host/), calculado con una ruta absoluta.
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=_env_path, override=True)
+
+if not os.getenv("GEMINI_API_KEY"):
+    raise RuntimeError(
+        f"No se encontro GEMINI_API_KEY. Se busco el archivo .env en: {_env_path} "
+        f"(existe: {_env_path.exists()}). Verifica que el archivo .env este en la "
+        f"raiz del proyecto y que contenga la linea GEMINI_API_KEY=..."
+    )
+
 app = FastAPI(title="FinAssist Chatbot - Proyecto 1 Redes")
 app.mount("/static", StaticFiles(directory="host/static"), name="static")
 
 llm = LLMClient()
 mcp_manager = MCPManager()
+
+MAX_ITERACIONES_TOOLS = 5  # limite de vueltas del ciclo tool_call -> resultado -> tool_call
 
 
 class ChatRequest(BaseModel):
@@ -31,9 +60,20 @@ class ChatRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup():
-    # TODO: registrar servidores MCP (filesystem, git, finassist local/remoto)
-    # y conectar_todos()
-    pass
+    mcp_manager.registrar_servidor(
+        "finassist",
+        transport="stdio",
+        command=["python3", "mcp_servers/finassist/server.py"],
+    )
+    # TODO: registrar tambien filesystem_official y git_official aqui
+    # cuando se integren (requisito 4), con su respectivo "command".
+
+    await mcp_manager.conectar_todos()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await mcp_manager.cerrar_todos()
 
 
 @app.get("/")
@@ -44,13 +84,34 @@ async def index():
 @app.post("/chat")
 async def chat(request: ChatRequest):
     conversation = session_manager.get_or_create(request.session_id)
-    conversation.add_user_message(request.message)
+    conversation.add(llm.construir_content_usuario(request.message))
 
-    # TODO: llamar a llm.send_message() con las tools de mcp_manager,
-    # manejar el ciclo tool_use -> mcp_manager.ejecutar_herramienta() -> tool_result
-    # hasta obtener una respuesta final de texto.
+    tools_disponibles = mcp_manager.obtener_herramientas_disponibles()
 
-    return {"response": "TODO: respuesta del LLM"}
+    for _ in range(MAX_ITERACIONES_TOOLS):
+        response = llm.send_message(conversation.get_history(), tools_disponibles)
+        conversation.add(llm.construir_content_modelo(response))
+
+        llamadas = llm.extraer_function_calls(response)
+        if not llamadas:
+            # No pidio usar ninguna tool: ya es la respuesta final
+            return {"response": llm.extraer_texto(response)}
+
+        # El modelo pidio una o mas tools: ejecutarlas via MCP y
+        # devolver los resultados para que el modelo continue
+        for llamada in llamadas:
+            try:
+                resultado = await mcp_manager.ejecutar_herramienta(
+                    llamada["name"], llamada["arguments"]
+                )
+            except Exception as exc:
+                resultado = {"error": str(exc)}
+
+            conversation.add(
+                llm.construir_content_resultado_tool(llamada["name"], resultado)
+            )
+
+    return {"response": "No se pudo completar la solicitud tras varios intentos con herramientas."}
 
 
 @app.get("/logs")
