@@ -44,10 +44,12 @@ Requiere tener el [SDK de Google Cloud](https://cloud.google.com/sdk/docs/instal
 instalado y autenticado (`gcloud auth login`).
 
 ```bash
-# Desde la raiz del proyecto (donde esta el Dockerfile)
+# Desde la raiz del proyecto, apuntando --source directamente a la
+# carpeta del servidor (gcloud busca automaticamente el Dockerfile
+# en la raiz de --source; no existe una bandera para indicar una
+# ruta personalizada al Dockerfile).
 gcloud run deploy finassist-mcp-server \
-  --source . \
-  --dockerfile mcp_servers/finassist/Dockerfile \
+  --source mcp_servers/finassist \
   --region us-central1 \
   --allow-unauthenticated \
   --port 8080

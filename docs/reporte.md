@@ -23,6 +23,19 @@ El host detecta automáticamente cuál usar según la variable de entorno
 no, el local — sin ningún otro cambio en la lógica del chatbot, ya que
 `mcp_client.py` implementa ambos transportes bajo la misma interfaz.
 
+**Despliegue real:** el servidor remoto quedó desplegado en Google
+Cloud Run, proyecto `finassist-mcp-2026`, región `us-central1`, en:
+
+```
+https://finassist-mcp-server-8543898875.us-central1.run.app
+```
+
+Se verificó funcionando end-to-end desde el chatbot: al registrar un
+gasto con el servidor remoto activo, el `id` autoincremental devuelto
+correspondió al de la base de datos persistida en Cloud Run (no la
+local), confirmando que la interacción viajó realmente por internet
+hasta el servicio desplegado.
+
 ## 1.1 Integración de servidores MCP oficiales (Filesystem y Git)
 
 Se integraron los servidores oficiales de Anthropic:
