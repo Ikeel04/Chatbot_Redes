@@ -168,4 +168,77 @@ la sesión TLS ya establecida, se identifican tres protocolos anidados:
 
 ## 3. Conclusiones y comentarios sobre el proyecto
 
-*(TODO)*
+### Funcionalidades logradas
+
+Se implementó un chatbot (FinAssist) que actúa como anfitrión MCP,
+coordinando simultáneamente tres servidores: uno propio (finanzas
+personales, con transporte local y remoto) y dos oficiales de
+Anthropic (Filesystem y Git). El protocolo JSON-RPC 2.0 se implementó
+manualmente en ambos extremos del servidor propio (`mcp_client.py` del
+lado del host, `dispatch.py` del lado del servidor), sin usar ningún
+SDK de MCP, cumpliendo el requisito central del proyecto. Se logró
+desplegar el servidor remoto en Google Cloud Run y verificar que el
+chatbot lo usa exactamente igual que al servidor local, cambiando
+únicamente una variable de entorno.
+
+### Dificultades y cómo se resolvieron
+
+- **Cambio de proveedor de LLM.** Se optó por usar Gemini en vez de
+  Claude (sugerido en el enunciado) por sus créditos gratuitos, lo
+  cual introdujo varios problemas específicos de esa API que no se
+  habrían presentado con Anthropic:
+  - Las API keys nuevas de Gemini (formato `AQ.`) fueron rechazadas
+    por el SDK `google-genai` con un error de "API key not valid",
+    aunque la misma key funcionaba correctamente en una petición
+    `curl` directa al endpoint REST. Fue necesario diagnosticar la
+    causa comparando ambos caminos antes de confirmar que era un
+    problema puntual, no de la key en sí.
+  - El modelo por defecto (`gemini-2.5-flash`) fue descontinuado para
+    cuentas nuevas durante el desarrollo del proyecto, requiriendo
+    migrar a `gemini-3.6-flash`.
+  - La capa gratuita de Gemini impone límites estrictos (5
+    solicitudes/minuto y 20/día para cuentas nuevas), lo que limitó
+    la cantidad de pruebas que se podían hacer en una sesión y obligó
+    a espaciar las pruebas de integración.
+- **Manejo de subprocesos en Windows.** `asyncio.create_subprocess_exec`
+  (usado para lanzar los servidores MCP locales por stdio) no
+  funciona con el *event loop* por defecto en Windows, y además
+  `uvicorn --reload` fuerza ese loop por defecto sin importar la
+  configuración del código. Se resolvió forzando
+  `WindowsProactorEventLoopPolicy` y evitando `--reload` en Windows.
+- **Carga de variables de entorno.** `load_dotenv()` sin argumentos no
+  encontraba el archivo `.env` de forma consistente según desde dónde
+  se invocara `uvicorn`. Se resolvió calculando una ruta absoluta al
+  `.env` a partir de la ubicación del propio archivo `main.py`.
+- **Compatibilidad de JSON Schema entre MCP y Gemini.** El servidor
+  Filesystem oficial genera *schemas* con campos válidos en JSON
+  Schema estándar (como `$schema`) que el validador de Gemini
+  rechaza. Se resolvió saneando recursivamente los *schemas* antes de
+  convertirlos a `FunctionDeclaration`.
+- **Servidor Git oficial incompleto para el escenario pedido.** El
+  servidor de referencia no expone una tool `git_init`, por lo que la
+  creación del repositorio la asume el host al arrancar, y el
+  chatbot demuestra el resto del flujo (crear archivo, *add*,
+  *commit*) en tiempo real.
+- **Despliegue a la nube.** Habilitar los servicios de Cloud Run exige
+  una cuenta de facturación vinculada al proyecto, incluso si el uso
+  se mantiene dentro de la capa gratuita — se mitigó configurando una
+  alerta de presupuesto en $1 USD. Además, `gcloud run deploy --source`
+  no acepta una ruta personalizada al `Dockerfile`, solo lo busca en
+  la raíz del directorio indicado por `--source`, lo que obligó a
+  reorganizar las rutas de `COPY` dentro del `Dockerfile`.
+- **Análisis de tráfico cifrado.** Al ser el servidor remoto HTTPS, fue
+  necesario usar la técnica de `SSLKEYLOGFILE` para poder descifrar el
+  tráfico en Wireshark y ver el contenido JSON-RPC en texto plano.
+
+### Lecciones aprendidas
+
+Separar la lógica de negocio y de protocolo (`tools.py`, `db.py`,
+`dispatch.py`) de los transportes (`server.py`, `server_remote.py`)
+desde el inicio permitió agregar el servidor remoto sin duplicar
+código ni arriesgar inconsistencias entre ambas versiones. Asimismo,
+probar cada componente de forma aislada (el cliente MCP contra el
+servidor propio antes de integrarlo al host completo, el servidor
+remoto localmente antes de desplegarlo) ayudó a aislar rápidamente en
+qué capa estaba cada falla, en un proyecto con muchas piezas moviéndose
+a la vez (LLM, protocolo MCP, red, despliegue en la nube).
