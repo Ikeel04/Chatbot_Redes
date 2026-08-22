@@ -7,5 +7,7 @@ venv/
 *.sqlite3
 .DS_Store
 node_modules/
-docs/wireshark/*.pcapng
 .pytest_cache/
+# El repo de demo que crea/usa el servidor Git oficial (requisito 4)
+# se ignora para no anidar un repositorio Git dentro de otro (submodulo).
+mcp_workspace/.git/
